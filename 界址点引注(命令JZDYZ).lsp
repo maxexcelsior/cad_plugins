@@ -1,4 +1,4 @@
-(defun c:JZDYZ (/ acad_obj doc mspace lay_id ss i ent pts raw_pts clean_pts txt_h pt pt_text mleader_obj pt_list x_coord y_coord choice pt_obj fuzz)
+(defun c:JZDYZ (/ acad_obj doc mspace lay_id ss i ent pts raw_pts clean_pts txt_h pt pt_text mleader_obj pt_list x_coord y_coord choice pt_obj fuzz exists)
   (setvar "cmdecho" 0)
   (vl-load-com)
 
@@ -30,11 +30,14 @@
         (setq i (1+ i))
       )
 
+      ;; --- 修复逻辑：使用 foreach 替代 member-if 进行全局去重 ---
       (setq clean_pts '())
       (foreach p raw_pts
-        (if (not (member-if '(lambda (x) (equal p x fuzz)) clean_pts))
-          (setq clean_pts (cons p clean_pts))
+        (setq exists nil)
+        (foreach cp clean_pts
+          (if (equal p cp fuzz) (setq exists t))
         )
+        (if (not exists) (setq clean_pts (cons p clean_pts)))
       )
       (setq clean_pts (reverse clean_pts))
 
@@ -59,7 +62,7 @@
         (vla-put-TextString mleader_obj (strcat "J" (itoa i)))
         (vla-put-TextHeight mleader_obj txt_h)
         (vla-put-Layer mleader_obj lay_id)
-        (vla-put-ArrowheadType mleader_obj 19)
+        (vla-put-ArrowheadType mleader_obj 19) ; 实心圆点
         (vla-put-ArrowheadSize mleader_obj (/ txt_h 2.5))
         (vla-put-DoglegLength mleader_obj 0.0) 
 
@@ -84,7 +87,7 @@
   (princ)
 )
 
-;;; --- 新增命令 1: 检查节点数 ---
+;;; --- 命令 1: 检查节点数 (保持现状) ---
 (defun c:JZD_PTS (/ ss i ent pts)
   (princ "\n选择要检查节点数的多段线: ")
   (if (setq ss (ssget '((0 . "LWPOLYLINE"))))
@@ -102,9 +105,9 @@
   (princ)
 )
 
-;;; --- 新增命令 2: 清理重叠节点 ---
+;;; --- 命令 2: 清理重叠节点 (保持现状) ---
 (defun c:JZD_CL (/ ss i ent elist pts p clean_pts fuzz)
-  (setq fuzz 0.0001) ; 清理精度
+  (setq fuzz 0.0001)
   (princ "\n选择要清理重叠节点的多段线: ")
   (if (setq ss (ssget '((0 . "LWPOLYLINE"))))
     (progn
@@ -112,12 +115,10 @@
       (repeat (sslength ss)
         (setq ent (ssname ss i))
         (setq elist (entget ent))
-        ;; 提取所有 10 码坐标
         (setq pts '())
         (foreach x elist (if (= (car x) 10) (setq pts (cons (cdr x) pts))))
         (setq pts (reverse pts))
         
-        ;; 逐点对比清理 (仅清理相邻或距离极近的点)
         (setq clean_pts (list (car pts)))
         (foreach p (cdr pts)
           (if (not (equal p (car clean_pts) fuzz))
@@ -126,14 +127,10 @@
         )
         (setq clean_pts (reverse clean_pts))
         
-        ;; 如果节点数有变化，更新对象
         (if (/= (length pts) (length clean_pts))
           (progn
-            ;; 删除旧的 10 码，保留其他属性
             (setq elist (vl-remove-if '(lambda (x) (= (car x) 10)) elist))
-            ;; 重新加入清理后的 10 码
             (foreach p clean_pts (setq elist (append elist (list (cons 10 p)))))
-            ;; 更新多段线
             (entmod elist)
             (princ (strcat "\n对象 " (itoa (1+ i)) ": 清理了 " (itoa (- (length pts) (length clean_pts))) " 个重复节点。"))
           )
@@ -142,12 +139,11 @@
         (setq i (1+ i))
       )
     )
-    (princ "\n未选中多段线。")
   )
   (princ)
 )
 
-;;; 查询命令
+;;; --- 命令 3: 查询信息 ---
 (defun c:JZD_INFO (/ ent data xdata)
   (if (setq ent (car (entsel "\n点击标注或物理点以查看内部数据: ")))
     (progn
